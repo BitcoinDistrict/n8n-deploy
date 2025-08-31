@@ -1,0 +1,27 @@
+# Sensitive files
+key.txt
+*.key
+*.pem
+
+# Ansible
+ansible/inventory.ini
+*.retry
+
+# Environment files (except encrypted)
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp

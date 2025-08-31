@@ -1,0 +1,92 @@
+- hosts: n8n
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Ensure apt cache is fresh
+      apt:
+        update_cache: true
+      changed_when: false
+
+  tasks:
+    - name: Install base packages
+      apt:
+        name:
+          - curl
+          - git
+          - ufw
+          - ca-certificates
+          - gnupg
+        state: present
+
+    - name: Configure UFW (allow SSH, HTTP, HTTPS)
+      ufw:
+        state: enabled
+        policy: deny
+      notify: Reload UFW
+    - ufw:
+        rule: allow
+        name: OpenSSH
+    - ufw:
+        rule: allow
+        port: "80"
+        proto: tcp
+    - ufw:
+        rule: allow
+        port: "443"
+        proto: tcp
+
+    - name: Install Docker Engine + Compose plugin
+      shell: |
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        chmod a+r /etc/apt/keyrings/docker.gpg
+        . /etc/os-release
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $UBUNTU_CODENAME stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+        apt-get update -y
+        apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+      args: { executable: /bin/bash }
+
+    - name: Create app directory
+      file:
+        path: /opt/n8n
+        state: directory
+        mode: "0755"
+
+    - name: Create local_files directory (for n8n mounts)
+      file:
+        path: /opt/n8n/local_files
+        state: directory
+        mode: "0755"
+
+    - name: Place docker-compose.yml
+      copy:
+        src: roles/n8n/files/docker-compose.yml
+        dest: /opt/n8n/docker-compose.yml
+        mode: "0644"
+
+    - name: Place Caddyfile
+      copy:
+        src: ../app/Caddyfile
+        dest: /opt/n8n/Caddyfile
+        mode: "0644"
+
+    - name: Decrypt .env.sops (SOPS)
+      community.sops.sops_decrypt:
+        path: roles/n8n/templates/.env.sops
+      register: envfile
+
+    - name: Write .env
+      copy:
+        content: "{{ envfile.content }}"
+        dest: /opt/n8n/.env
+        mode: "0600"
+
+    - name: Start/Update stack
+      community.docker.docker_compose_v2:
+        project_src: /opt/n8n
+        state: present
+
+  handlers:
+    - name: Reload UFW
+      command: ufw reload

@@ -1,0 +1,59 @@
+name: Deploy n8n to Existing Server
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Ansible + collections
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible
+          ansible-galaxy collection install community.docker community.sops
+
+      - name: Install sops and age
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sops age
+
+      - name: Configure SOPS age key
+        run: |
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.AGE_PRIVATE_KEY }}" > ~/.config/sops/age/keys.txt
+          chmod 600 ~/.config/sops/age/keys.txt
+
+      - name: Start ssh-agent and add deploy key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: |
+            ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "${{ secrets.SSH_PORT || '22' }}" "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Write Ansible inventory from secrets
+        run: |
+          echo "[n8n]" > ansible/inventory.ini
+          echo "server ansible_host=${{ secrets.SSH_HOST }} ansible_user=${{ secrets.SSH_USER }} ansible_port=${{ secrets.SSH_PORT || '22' }}" >> ansible/inventory.ini
+
+      - name: Run Ansible playbook
+        working-directory: ansible
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "False"
+        run: |
+          ansible-playbook -i inventory.ini playbook.yml -v

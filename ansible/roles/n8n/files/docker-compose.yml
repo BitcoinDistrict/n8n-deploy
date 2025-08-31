@@ -1,0 +1,38 @@
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - n8n
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - N8N_PROTOCOL=https
+      - N8N_SECURE_COOKIE=true
+      - NODE_ENV=production
+      - GENERIC_TIMEZONE=America/New_York
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./local_files:/files
+
+  watchtower:
+    image: containrrr/watchtower
+    restart: unless-stopped
+    command: --cleanup --interval 3600 caddy n8n
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  caddy_data:
+  caddy_config:
+  n8n_data:
