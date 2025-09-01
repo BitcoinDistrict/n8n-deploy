@@ -22,7 +22,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install ansible
-          ansible-galaxy collection install community.docker community.sops
+          
+          # Install collections with explicit paths and verification
+          ansible-galaxy collection install community.docker community.sops --force
+          
+          # Verify collections are installed
+          ansible-galaxy collection list
+          
+          # Also verify the specific module we need
+          python -c "import ansible_collections.community.sops" || echo "Warning: community.sops collection may not be fully available"
 
       - name: Install age and sops
         run: |

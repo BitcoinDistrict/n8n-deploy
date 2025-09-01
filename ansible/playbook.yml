@@ -72,13 +72,14 @@
         mode: "0644"
 
     - name: Decrypt .env.sops (SOPS)
-      community.sops.sops_decrypt:
-        path: roles/n8n/templates/.env.sops
-      register: envfile
+      delegate_to: localhost
+      shell: sops --decrypt {{ playbook_dir }}/roles/n8n/templates/.env.sops
+      register: envfile_decrypt
+      changed_when: false
 
     - name: Write .env
       copy:
-        content: "{{ envfile.content }}"
+        content: "{{ envfile_decrypt.stdout }}"
         dest: /opt/n8n/.env
         mode: "0600"
 
