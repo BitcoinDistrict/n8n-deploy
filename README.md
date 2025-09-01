@@ -18,6 +18,7 @@
   - A reachable **Ubuntu 24.04** server (public IP).
   - SSH access using a **private key** (add this as a GitHub Secret).
   - A DNS record pointing your chosen hostname (e.g., `n8n.example.org`) to the server (optional but recommended).
+  - A deploy user with **passwordless sudo** access configured (see Server Setup below).
 
 - The repo will:
   - Install Docker Engine + Compose plugin,
@@ -319,6 +320,69 @@ jobs:
 - `SSH_PORT`: optional (default 22)
 - `SSH_PRIVATE_KEY`: private key contents
 - `AGE_PRIVATE_KEY`: age private key (for decrypting `.env.sops`)
+
+---
+
+## Server Setup
+
+Before running the deployment, ensure your Ubuntu 24.04 server is properly configured:
+
+### 1. Create Deploy User
+
+```bash
+# Run these commands as root on your server
+adduser --disabled-password --gecos "" deploy
+usermod -aG sudo deploy
+```
+
+### 2. Configure Passwordless Sudo
+
+```bash
+# Allow deploy user to use sudo without password
+echo "deploy ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/deploy
+sudo chmod 440 /etc/sudoers.d/deploy
+
+# Verify configuration
+sudo visudo -c
+```
+
+### 3. Set Up SSH Key Access
+
+```bash
+# Create SSH directory for deploy user
+mkdir -p /home/deploy/.ssh
+
+# Add your public key (replace with your actual public key)
+echo "your-ssh-public-key-here" > /home/deploy/.ssh/authorized_keys
+
+# Set proper permissions
+chown -R deploy:deploy /home/deploy/.ssh
+chmod 700 /home/deploy/.ssh
+chmod 600 /home/deploy/.ssh/authorized_keys
+```
+
+### 4. Configure SSH Security
+
+Edit `/etc/ssh/sshd_config`:
+```bash
+PermitRootLogin no
+PasswordAuthentication no
+PubkeyAuthentication yes
+AllowUsers deploy
+```
+
+Then restart SSH:
+```bash
+systemctl restart sshd
+```
+
+### 5. Test Connection
+
+```bash
+# Test from your local machine
+ssh deploy@your-server-ip "sudo whoami"
+# Should return "root" without password prompt
+```
 
 ---
 
