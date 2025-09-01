@@ -10,6 +10,7 @@ ansible/inventory.ini
 # Environment files (except encrypted)
 .env
 .env.local
+.env.production
 
 # IDE
 .vscode/
