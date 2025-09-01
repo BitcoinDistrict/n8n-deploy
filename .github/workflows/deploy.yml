@@ -71,5 +71,6 @@ jobs:
         working-directory: ansible
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
+          ANSIBLE_SSH_ARGS: "-o ServerAliveInterval=60 -o ServerAliveCountMax=3"
         run: |
           ansible-playbook -i inventory.ini playbook.yml -v
