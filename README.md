@@ -267,10 +267,18 @@ jobs:
           pip install ansible
           ansible-galaxy collection install community.docker community.sops
 
-      - name: Install sops and age
+      - name: Install age and sops
         run: |
           sudo apt-get update
-          sudo apt-get install -y sops age
+          sudo apt-get install -y age
+          
+          # Install sops from GitHub releases
+          curl -LO https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64
+          sudo mv sops-v3.10.2.linux.amd64 /usr/local/bin/sops
+          sudo chmod +x /usr/local/bin/sops
+          
+          # Verify installation
+          sops --version
 
       - name: Configure SOPS age key
         run: |
@@ -321,8 +329,14 @@ jobs:
 Run the automated setup script:
 
 ```bash
-# Make sure age and sops are installed
-sudo apt-get install age sops
+# Install age from Ubuntu repositories
+sudo apt-get update
+sudo apt-get install age
+
+# Install sops from GitHub releases (not available in Ubuntu repos)
+curl -LO https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64
+sudo mv sops-v3.10.2.linux.amd64 /usr/local/bin/sops
+sudo chmod +x /usr/local/bin/sops
 
 # Run the setup script
 ./setup.sh

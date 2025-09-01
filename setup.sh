@@ -14,7 +14,10 @@ fi
 # Check if sops is installed
 if ! command -v sops &> /dev/null; then
     echo "❌ sops is not installed. Please install it first:"
-    echo "   sudo apt-get install sops"
+    echo "   # Download and install SOPS from GitHub releases"
+    echo "   curl -LO https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64"
+    echo "   sudo mv sops-v3.10.2.linux.amd64 /usr/local/bin/sops"
+    echo "   sudo chmod +x /usr/local/bin/sops"
     exit 1
 fi
 

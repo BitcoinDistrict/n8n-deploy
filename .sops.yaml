@@ -2,4 +2,4 @@ creation_rules:
   - path_regex: ansible/roles/n8n/templates/\.env\.sops$
     key_groups:
       - age:
-          - age1replace_this_with_your_public_key
+          - age1caf72cjcevfe6u0js5x6yp4ed3j2pspntvc9fss4cn50wff5mskq2pahw7
