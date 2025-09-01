@@ -48,8 +48,22 @@ jobs:
       - name: Configure SOPS age key
         run: |
           mkdir -p ~/.config/sops/age
+          
+          # Write the private key and ensure proper formatting
           echo "${{ secrets.AGE_PRIVATE_KEY }}" > ~/.config/sops/age/keys.txt
           chmod 600 ~/.config/sops/age/keys.txt
+          
+          # Debug: Check if the key file exists and has content
+          echo "=== Age key file debug ==="
+          ls -la ~/.config/sops/age/
+          echo "=== First few lines of keys.txt ==="
+          head -3 ~/.config/sops/age/keys.txt
+          echo "=== Testing age key ==="
+          age-keygen -y ~/.config/sops/age/keys.txt || echo "Failed to parse age key"
+          
+          # Test SOPS decryption
+          echo "=== Testing SOPS decryption ==="
+          sops --decrypt ansible/roles/n8n/templates/.env.sops || echo "SOPS decryption failed"
 
       - name: Start ssh-agent and add deploy key
         uses: webfactory/ssh-agent@v0.9.0

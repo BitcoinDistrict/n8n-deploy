@@ -98,7 +98,9 @@
       file:
         path: /opt/n8n/local_files
         state: directory
-        mode: "0755"
+        mode: "0775"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
 
     - name: Place docker-compose.yml
       copy:
