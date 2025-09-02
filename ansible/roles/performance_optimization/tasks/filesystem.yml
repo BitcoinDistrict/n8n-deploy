@@ -1,0 +1,162 @@
+---
+# Filesystem and I/O optimization for tiny VMs
+
+- name: Get current filesystem mount information
+  setup:
+    filter: ansible_mounts
+  tags: ['filesystem']
+
+- name: Check current noatime mount options
+  debug:
+    msg: "Current mount options for /: {{ ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='options') | first }}"
+  tags: ['filesystem']
+
+- name: Configure file descriptor limits in limits.conf
+  blockinfile:
+    path: /etc/security/limits.conf
+    block: |
+      # File descriptor limits for performance optimization
+      # Managed by Ansible - performance_optimization role
+      *               soft    nofile          65536
+      *               hard    nofile          65536
+      root            soft    nofile          65536
+      root            hard    nofile          65536
+      
+      # Process limits to prevent fork bombs while allowing reasonable usage
+      *               soft    nproc           32768
+      *               hard    nproc           32768
+      root            soft    nproc           unlimited
+      root            hard    nproc           unlimited
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - Performance Optimization"
+    backup: yes
+  tags: ['filesystem', 'limits']
+
+- name: Configure systemd file descriptor limits (handled via system drop-in)
+  debug:
+    msg: "DefaultLimitNOFILE will be set via systemd drop-in in systemd tasks"
+  tags: ['filesystem', 'limits']
+
+- name: Configure PAM limits module
+  lineinfile:
+    path: /etc/pam.d/common-session
+    line: "session required pam_limits.so"
+    state: present
+  tags: ['filesystem', 'limits']
+
+- name: Configure PAM limits for non-interactive sessions
+  lineinfile:
+    path: /etc/pam.d/common-session-noninteractive
+    line: "session required pam_limits.so"
+    state: present
+  tags: ['filesystem', 'limits']
+
+- name: Create sysctl configuration for filesystem performance
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_file: /etc/sysctl.d/80-filesystem-optimization.conf
+    reload: yes
+  loop: "{{ (
+      [
+        {'name': 'fs.file-max', 'value': '2097152'},
+        {'name': 'fs.aio-max-nr', 'value': '1048576'}
+      ]
+    )
+    + (
+      performance_optimization_manage_inotify | bool
+      | ternary([
+          {'name': 'fs.inotify.max_user_watches', 'value': '262144'},
+          {'name': 'fs.inotify.max_user_instances', 'value': '256'},
+          {'name': 'fs.inotify.max_queued_events', 'value': '16384'}
+        ], [])
+    ) }}"
+  tags: ['filesystem', 'sysctl']
+
+- name: Configure noatime in fstab (opt-in list)
+  lineinfile:
+    path: /etc/fstab
+    regexp: '^([^#]\S+\s+{{ item | regex_escape }}\s+\S+\s+)(.*)$'
+    line: '\\1\\2,noatime'
+    backrefs: yes
+  loop: "{{ performance_optimization_noatime_mounts }}"
+  when: performance_optimization_enable_noatime | bool
+  notify: systemd daemon-reload
+  tags: ['filesystem']
+
+- name: Create I/O scheduler optimization script (rotational only)
+  copy:
+    content: |
+      #!/bin/bash
+      # I/O scheduler optimization for tiny VMs (rotational disks only)
+      set -euo pipefail
+      for path in /sys/block/*; do
+        dev=$(basename "$path")
+        # Skip loop, ram, md, dm, nvme, and virtio devices
+        if [[ "$dev" =~ ^(loop|ram|md|dm-) ]] || [[ "$dev" == nvme* ]] || [[ "$dev" == vd* ]] || [[ "$dev" == vda* ]]; then
+          continue
+        fi
+        if [[ -f "$path/queue/rotational" ]] && [[ -f "$path/queue/scheduler" ]]; then
+          rotational=$(cat "$path/queue/rotational")
+          if [[ "$rotational" == "1" ]]; then
+            if grep -q mq-deadline "$path/queue/scheduler"; then
+              echo mq-deadline > "$path/queue/scheduler" 2>/dev/null || true
+            fi
+          fi
+        fi
+      done
+    dest: /usr/local/bin/optimize-io-scheduler.sh
+    mode: '0755'
+  when: performance_optimization_manage_io_scheduler | bool
+  tags: ['filesystem', 'io']
+
+- name: Create systemd service for I/O scheduler optimization
+  copy:
+    content: |
+      [Unit]
+      Description=Optimize I/O schedulers for storage devices
+      After=multi-user.target
+      
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/optimize-io-scheduler.sh
+      RemainAfterExit=yes
+      
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/io-scheduler-optimization.service
+    mode: '0644'
+  notify: systemd daemon-reload
+  tags: ['filesystem', 'io']
+
+- name: Enable I/O scheduler optimization service
+  systemd:
+    name: io-scheduler-optimization.service
+    enabled: yes
+    state: started
+  when: performance_optimization_manage_io_scheduler | bool
+  tags: ['filesystem', 'io']
+
+- name: Display filesystem optimization information
+  debug:
+    msg: |
+      Filesystem optimizations applied:
+      - File descriptor limits raised to 65536
+      - Inotify limits increased (if enabled)
+      - I/O scheduler optimization enabled (rotational only, if enabled)
+      - noatime managed via fstab for mounts: {{ performance_optimization_noatime_mounts }}
+  tags: ['filesystem']
+
+- name: Check current ulimits
+  shell: |
+    echo "Current ulimits:"
+    echo "Open files (nofile): $(ulimit -n)"
+    echo "Max processes (nproc): $(ulimit -u)"
+  register: current_ulimits
+  changed_when: false
+  tags: ['filesystem', 'limits']
+
+- name: Display current ulimits
+  debug:
+    var: current_ulimits.stdout_lines
+  tags: ['filesystem', 'limits']

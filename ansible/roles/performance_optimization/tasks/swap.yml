@@ -1,0 +1,131 @@
+---
+# Swap and memory management configuration for tiny VMs
+
+- name: Get system memory information
+  setup:
+    filter: ansible_memtotal_mb
+  tags: ['swap']
+
+- name: Set swap configuration facts
+  set_fact:
+    use_zram: "{{ ansible_memtotal_mb < performance_optimization_zram_threshold_mb }}"
+    swap_size_mb: "{{ (ansible_memtotal_mb * performance_optimization_swap_size_ratio) | int }}"
+  tags: ['swap']
+
+- name: Display swap strategy
+  debug:
+    msg: "Using {{ 'ZRAM' if use_zram else 'swapfile' }} swap strategy for {{ ansible_memtotal_mb }}MB RAM system"
+  tags: ['swap']
+
+# ZRAM Configuration (Ubuntu version gated)
+- name: Ensure correct ZRAM implementation is used (remove conflicting packages)
+  apt:
+    name: "{{ item.name }}"
+    state: "{{ item.state }}"
+    update_cache: yes
+  loop:
+    # On 22.04/24.04 prefer systemd-zram-generator and ensure zram-tools is absent
+    - { name: 'systemd-zram-generator', state: "{{ 'present' if (ansible_distribution_major_version | int) >= 22 else 'absent' }}" }
+    - { name: 'zram-tools', state: "{{ 'present' if (ansible_distribution_major_version | int) < 22 else 'absent' }}" }
+  when: use_zram
+  tags: ['swap']
+
+- name: Configure systemd-zram-generator (Ubuntu >= 22.04)
+  copy:
+    dest: /etc/systemd/zram-generator.conf
+    mode: '0644'
+    content: |
+      [zram0]
+      zram-size = {{ swap_size_mb }}M
+      compression-algorithm = {{ performance_optimization_zram_algo }}
+      swap-priority = 100
+  when: use_zram and (ansible_distribution_major_version | int) >= 22
+  notify: systemd daemon-reload
+  tags: ['swap']
+
+- name: Enable swap on zram (Ubuntu >= 22.04)
+  systemd:
+    name: systemd-zram-setup@zram0.service
+    enabled: yes
+    state: started
+  when: use_zram and (ansible_distribution_major_version | int) >= 22
+  tags: ['swap']
+
+- name: Configure zram-tools (Ubuntu 20.04)
+  template:
+    src: zramswap.j2
+    dest: /etc/default/zramswap
+    backup: yes
+  when: use_zram and (ansible_distribution_major_version | int) < 22
+  notify: restart zramswap
+  tags: ['swap']
+
+- name: Enable and start zramswap service (Ubuntu 20.04)
+  systemd:
+    name: zramswap
+    enabled: yes
+    state: started
+  when: use_zram and (ansible_distribution_major_version | int) < 22
+  tags: ['swap']
+
+# Swapfile Configuration (fallback for larger VMs)
+- name: Check if swapfile already exists
+  stat:
+    path: /swapfile
+  register: swapfile_check
+  when: not use_zram
+  tags: ['swap']
+
+- name: Create swapfile
+  command: fallocate -l {{ swap_size_mb }}M /swapfile
+  when: not use_zram and not swapfile_check.stat.exists
+  tags: ['swap']
+
+- name: Set swapfile permissions
+  file:
+    path: /swapfile
+    mode: '0600'
+  when: not use_zram
+  tags: ['swap']
+
+- name: Format swapfile
+  command: mkswap /swapfile
+  when: not use_zram and not swapfile_check.stat.exists
+  tags: ['swap']
+
+- name: Enable swapfile
+  command: swapon /swapfile
+  when: not use_zram and not swapfile_check.stat.exists
+  tags: ['swap']
+
+- name: Add swapfile to fstab
+  lineinfile:
+    path: /etc/fstab
+    line: '/swapfile none swap sw 0 0'
+    state: present
+  when: not use_zram
+  tags: ['swap']
+
+# Memory management sysctl settings (applied regardless of swap type)
+- name: Configure memory management sysctl settings
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_file: /etc/sysctl.d/60-memory-optimization.conf
+    reload: yes
+  loop:
+    # Conservative swappiness for tiny VMs (reduce swap usage)
+    - { name: 'vm.swappiness', value: '{{ performance_optimization_swappiness }}' }
+    # Reduce cache pressure to keep more cache in memory
+    - { name: 'vm.vfs_cache_pressure', value: '{{ performance_optimization_vfs_cache_pressure }}' }
+    # Dirty memory settings for better I/O performance
+    - { name: 'vm.dirty_background_ratio', value: '5' }
+    - { name: 'vm.dirty_ratio', value: '10' }
+    # Reduce dirty writeback time for better responsiveness
+    - { name: 'vm.dirty_writeback_centisecs', value: '500' }
+    - { name: 'vm.dirty_expire_centisecs', value: '3000' }
+    # Memory overcommit settings
+    - { name: 'vm.overcommit_memory', value: '1' }
+    - { name: 'vm.overcommit_ratio', value: '50' }
+  tags: ['swap', 'sysctl']

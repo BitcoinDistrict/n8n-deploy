@@ -3,6 +3,13 @@
   gather_facts: true
   vars:
     ansible_ssh_common_args: '-o ServerAliveInterval=60 -o ServerAliveCountMax=3'
+    # Enable performance optimization for tiny VMs (set to false to disable)
+    enable_performance_optimization: true
+
+  roles:
+    - role: performance_optimization
+      when: enable_performance_optimization | default(true)
+      tags: ['performance', 'optimization']
 
   pre_tasks:
     - name: Ensure apt cache is fresh

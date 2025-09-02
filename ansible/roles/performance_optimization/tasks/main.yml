@@ -1,0 +1,27 @@
+---
+# Performance optimization tasks for tiny Ubuntu VMs
+# Includes OS detection to ensure compatibility
+
+- name: Check if system is Ubuntu
+  fail:
+    msg: "This role supports Ubuntu 20.04/22.04/24.04 only. Detected: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+  when: ansible_distribution != "Ubuntu" or ansible_distribution_major_version | int < 20
+  tags: ['always']
+
+- name: Display system information
+  debug:
+    msg: "Optimizing performance for {{ ansible_distribution }} {{ ansible_distribution_version }} ({{ ansible_architecture }})"
+  tags: ['always']
+
+# Import specific optimization tasks
+- import_tasks: swap.yml
+  tags: ['swap', 'memory']
+
+- import_tasks: sysctl.yml  
+  tags: ['sysctl', 'kernel', 'network']
+
+- import_tasks: systemd.yml
+  tags: ['systemd', 'journald', 'oom']
+
+- import_tasks: filesystem.yml
+  tags: ['filesystem', 'limits']

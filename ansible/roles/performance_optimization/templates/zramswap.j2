@@ -1,0 +1,17 @@
+# ZRAM configuration for tiny VM optimization
+# Managed by Ansible - do not edit manually
+
+# Enable ZRAM
+ENABLED=true
+
+# Compression algorithm (lz4 is fastest, lzo is good compromise, zstd is best compression)
+ALGO=lz4
+
+# Percentage of RAM to use for ZRAM (50% is conservative for tiny VMs)
+PERCENT=50
+
+# Priority (higher number = higher priority)
+PRIORITY=100
+
+# Number of ZRAM devices (usually 1 per CPU core, but 1 is fine for tiny VMs)
+DEVICES=1

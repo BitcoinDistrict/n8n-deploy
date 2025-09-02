@@ -1,0 +1,65 @@
+---
+# Test playbook for performance optimization role
+# Usage: ansible-playbook -i inventory.ini test-performance.yml
+
+- hosts: n8n
+  become: true
+  gather_facts: true
+  vars:
+    ansible_ssh_common_args: '-o ServerAliveInterval=60 -o ServerAliveCountMax=3'
+
+  roles:
+    - role: performance_optimization
+      tags: ['performance']
+
+  post_tasks:
+    - name: Verify system optimizations
+      block:
+        - name: Check swap configuration
+          command: swapon --show
+          register: swap_status
+          changed_when: false
+
+        - name: Check file descriptor limits
+          shell: ulimit -n
+          register: fd_limits
+          changed_when: false
+
+        - name: Check TCP congestion control
+          shell: sysctl net.ipv4.tcp_congestion_control
+          register: tcp_cc
+          changed_when: false
+
+        - name: Check memory settings
+          shell: |
+            echo "vm.swappiness: $(sysctl -n vm.swappiness)"
+            echo "vm.vfs_cache_pressure: $(sysctl -n vm.vfs_cache_pressure)"
+            echo "fs.file-max: $(sysctl -n fs.file-max)"
+          register: memory_settings
+          changed_when: false
+
+        - name: Check journal disk usage
+          command: journalctl --disk-usage
+          register: journal_usage
+          changed_when: false
+
+        - name: Display optimization results
+          debug:
+            msg: |
+              Performance Optimization Results:
+              
+              Swap Status:
+              {{ swap_status.stdout }}
+              
+              File Descriptor Limit: {{ fd_limits.stdout }}
+              
+              TCP Congestion Control:
+              {{ tcp_cc.stdout }}
+              
+              Memory Settings:
+              {{ memory_settings.stdout }}
+              
+              Journal Disk Usage:
+              {{ journal_usage.stdout }}
+
+      tags: ['verify', 'test']

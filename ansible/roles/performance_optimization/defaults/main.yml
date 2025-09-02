@@ -1,0 +1,38 @@
+---
+# Default variables for performance optimization role
+
+# Swap configuration
+performance_optimization_enable_swap: true
+performance_optimization_zram_threshold_mb: 2048  # Prefer ZRAM below this RAM threshold
+performance_optimization_swap_size_ratio: 0.5     # Swap size as ratio of total RAM
+performance_optimization_zram_algo: lz4           # Compression algorithm for ZRAM
+
+# Memory management (safer defaults on tiny VMs)
+performance_optimization_swappiness: 30
+performance_optimization_vfs_cache_pressure: 100
+
+# Network optimization
+performance_optimization_enable_bbr: true         # Enable BBR if available
+performance_optimization_enable_tfo: false        # TCP Fast Open (off by default)
+
+# Systemd/journald optimization
+performance_optimization_journal_max_use: "200M"
+performance_optimization_journal_max_file_size: "10M"
+performance_optimization_enable_oomd: true        # Only if service exists
+
+# Filesystem optimization
+performance_optimization_max_open_files: 65536    # Systemd default for services via drop-in
+performance_optimization_max_processes: 32768     # For interactive shells via limits.d
+performance_optimization_enable_noatime: false    # Opt-in only
+performance_optimization_noatime_mounts: []       # e.g., ['/']
+performance_optimization_manage_io_scheduler: true
+performance_optimization_manage_inotify: false    # Off by default; enable only if needed
+
+# Services to disable (for tiny VMs)
+performance_optimization_disable_services:
+  - snapd.service
+  - snapd.socket
+  - snapd.seeded.service
+
+# Skip optimization if not Ubuntu (safety check)
+performance_optimization_require_ubuntu: true

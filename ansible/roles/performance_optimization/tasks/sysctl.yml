@@ -1,0 +1,91 @@
+---
+# Kernel and network tuning via sysctl for tiny VMs
+
+- name: Check if BBR congestion control is available
+  command: modprobe tcp_bbr
+  register: bbr_check
+  ignore_errors: yes
+  changed_when: false
+  tags: ['sysctl', 'network']
+
+- name: Check if fq qdisc module is available
+  command: modprobe sch_fq
+  register: fq_check  
+  ignore_errors: yes
+  changed_when: false
+  tags: ['sysctl', 'network']
+
+- name: Configure network and kernel sysctl settings
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_file: /etc/sysctl.d/70-network-optimization.conf
+    reload: yes
+  loop:
+    # TCP Congestion Control - BBR (if available)
+    - { name: 'net.core.default_qdisc', value: 'fq' }
+    - { name: 'net.ipv4.tcp_congestion_control', value: "{{ 'bbr' if bbr_check.rc == 0 else 'cubic' }}" }
+    
+    # TCP Buffer Sizes (mild increases for tiny VMs)
+    - { name: 'net.core.rmem_default', value: '262144' }
+    - { name: 'net.core.rmem_max', value: '16777216' }
+    - { name: 'net.core.wmem_default', value: '262144' }
+    - { name: 'net.core.wmem_max', value: '16777216' }
+    - { name: 'net.ipv4.tcp_rmem', value: '4096 65536 16777216' }
+    - { name: 'net.ipv4.tcp_wmem', value: '4096 65536 16777216' }
+    
+    # TCP Performance Settings
+    - { name: 'net.ipv4.tcp_window_scaling', value: '1' }
+    - { name: 'net.ipv4.tcp_timestamps', value: '1' }
+    - { name: 'net.ipv4.tcp_sack', value: '1' }
+    - { name: 'net.ipv4.tcp_fack', value: '1' }
+    - { name: 'net.ipv4.tcp_fastopen', value: "{{ '3' if performance_optimization_enable_tfo else '0' }}" }
+    
+    # Connection Limits (conservative for tiny VMs)
+    - { name: 'net.core.somaxconn', value: '1024' }
+    - { name: 'net.core.netdev_max_backlog', value: '5000' }
+    - { name: 'net.ipv4.tcp_max_syn_backlog', value: '2048' }
+    
+    # TCP Keepalive Settings
+    - { name: 'net.ipv4.tcp_keepalive_time', value: '7200' }
+    - { name: 'net.ipv4.tcp_keepalive_probes', value: '9' }
+    - { name: 'net.ipv4.tcp_keepalive_intvl', value: '75' }
+    
+    # TCP Connection Reuse
+    - { name: 'net.ipv4.tcp_tw_reuse', value: '1' }
+    - { name: 'net.ipv4.tcp_fin_timeout', value: '30' }
+    
+    # IP Settings
+    - { name: 'net.ipv4.ip_local_port_range', value: '1024 65535' }
+    - { name: 'net.ipv4.conf.all.accept_redirects', value: '0' }
+    - { name: 'net.ipv4.conf.all.send_redirects', value: '0' }
+    - { name: 'net.ipv4.conf.all.accept_source_route', value: '0' }
+    
+    # Kernel Performance Settings
+    - { name: 'kernel.pid_max', value: '65536' }
+    - { name: 'fs.file-max', value: '2097152' }
+    - { name: 'kernel.threads-max', value: '65536' }
+    
+    # Security Settings (while maintaining performance)
+    - { name: 'net.ipv4.icmp_echo_ignore_broadcasts', value: '1' }
+    - { name: 'net.ipv4.icmp_ignore_bogus_error_responses', value: '1' }
+    - { name: 'net.ipv4.tcp_syncookies', value: '1' }
+    
+  tags: ['sysctl', 'network', 'kernel']
+
+- name: Load required kernel modules at boot
+  lineinfile:
+    path: /etc/modules-load.d/network-optimization.conf
+    line: "{{ item }}"
+    create: yes
+  loop:
+    - tcp_bbr
+    - sch_fq
+  when: bbr_check.rc == 0 and fq_check.rc == 0
+  tags: ['sysctl', 'network']
+
+- name: Display applied congestion control
+  debug:
+    msg: "Applied congestion control: {{ 'BBR with fq qdisc' if bbr_check.rc == 0 else 'CUBIC (BBR not available)' }}"
+  tags: ['sysctl', 'network']

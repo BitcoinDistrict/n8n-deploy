@@ -1,0 +1,144 @@
+---
+# Systemd and journald optimization for tiny VMs
+
+- name: Check if systemd-oomd is available
+  stat:
+    path: /usr/lib/systemd/system/systemd-oomd.service
+  register: systemd_oomd_available
+  tags: ['systemd', 'oom']
+
+- name: Ensure journald drop-in directory exists
+  file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    mode: '0755'
+  tags: ['systemd', 'journald']
+
+- name: Configure journald (drop-in)
+  copy:
+    dest: /etc/systemd/journald.conf.d/99-performance.conf
+    mode: '0644'
+    backup: yes
+    content: |
+      [Journal]
+      SystemMaxUse={{ performance_optimization_journal_max_use }}
+      SystemMaxFileSize={{ performance_optimization_journal_max_file_size }}
+      SystemMaxFiles=10
+      Storage=persistent
+      RuntimeMaxUse=50M
+      RuntimeMaxFileSize=5M
+      RuntimeMaxFiles=5
+      SyncIntervalSec=60s
+      Compress=yes
+      ForwardToSyslog=no
+      RateLimitInterval=30s
+      RateLimitBurst=1000
+  loop:
+    - 1
+  notify: restart journald
+  tags: ['systemd', 'journald']
+
+- name: Configure systemd-oomd for tiny VMs (if available)
+  lineinfile:
+    path: /etc/systemd/oomd.conf
+    regexp: "^#?{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+    backup: yes
+    create: yes
+  loop:
+    # More conservative thresholds for tiny VMs to prevent premature killing
+    - { key: 'DefaultMemoryPressureLimit', value: '80%' }
+    - { key: 'DefaultMemoryPressureDurationSec', value: '30s' }
+  when: systemd_oomd_available.stat.exists
+  notify: restart systemd-oomd
+  tags: ['systemd', 'oom']
+
+- name: Enable systemd-oomd service (if available)
+  systemd:
+    name: systemd-oomd
+    enabled: yes
+    state: started
+  when: systemd_oomd_available.stat.exists and performance_optimization_enable_oomd | bool
+  tags: ['systemd', 'oom']
+
+- name: Ensure systemd system drop-in directory exists
+  file:
+    path: /etc/systemd/system.conf.d
+    state: directory
+    mode: '0755'
+  tags: ['systemd']
+
+- name: Configure systemd system defaults (drop-in)
+  copy:
+    dest: /etc/systemd/system.conf.d/99-performance.conf
+    mode: '0644'
+    backup: yes
+    content: |
+      [Manager]
+      DefaultTimeoutStartSec=30s
+      DefaultTimeoutStopSec=15s
+      LogLevel=info
+      DumpCore=no
+      CrashShell=no
+      DefaultLimitNOFILE={{ performance_optimization_max_open_files }}
+      DefaultLimitNPROC={{ performance_optimization_max_processes }}
+  notify: systemd daemon-reload
+  tags: ['systemd']
+
+- name: Ensure systemd user drop-in directory exists
+  file:
+    path: /etc/systemd/user.conf.d
+    state: directory
+    mode: '0755'
+  tags: ['systemd']
+
+- name: Configure systemd user defaults (drop-in)
+  copy:
+    dest: /etc/systemd/user.conf.d/99-performance.conf
+    mode: '0644'
+    backup: yes
+    content: |
+      [Manager]
+      DefaultTimeoutStartSec=30s
+      DefaultTimeoutStopSec=15s
+      DefaultLimitNOFILE=32768
+      DefaultLimitNPROC=16384
+  tags: ['systemd']
+
+- name: Create systemd drop-in directory for memory management
+  file:
+    path: /etc/systemd/system/user@.service.d
+    state: directory
+    mode: '0755'
+  tags: ['systemd']
+
+- name: Configure user service memory limits
+  copy:
+    content: |
+      [Service]
+      # Memory accounting and limits for user services
+      MemoryAccounting=yes
+      MemoryHigh=80%
+      MemoryMax=90%
+      
+      # Task limits to prevent fork bombs
+      TasksAccounting=yes
+      TasksMax=4096
+    dest: /etc/systemd/system/user@.service.d/memory-limits.conf
+    mode: '0644'
+  notify: systemd daemon-reload
+  tags: ['systemd']
+
+- name: Disable unnecessary systemd services for tiny VMs
+  systemd:
+    name: "{{ item }}"
+    enabled: no
+    state: stopped
+  loop: "{{ performance_optimization_disable_services }}"
+  ignore_errors: yes  # Services might not exist on all systems
+  tags: ['systemd', 'services']
+
+- name: Display systemd-oomd status
+  debug:
+    msg: "systemd-oomd {{ 'enabled' if systemd_oomd_available.stat.exists else 'not available' }} on this system"
+  tags: ['systemd', 'oom']

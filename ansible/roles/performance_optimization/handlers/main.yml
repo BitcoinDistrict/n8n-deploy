@@ -1,0 +1,25 @@
+---
+# Handlers for performance optimization role
+
+- name: restart zramswap
+  systemd:
+    name: zramswap
+    state: restarted
+  listen: restart zramswap
+
+- name: restart journald
+  systemd:
+    name: systemd-journald
+    state: restarted
+  listen: restart journald
+
+- name: restart systemd-oomd
+  systemd:
+    name: systemd-oomd
+    state: restarted
+  listen: restart systemd-oomd
+
+- name: systemd daemon-reload
+  systemd:
+    daemon_reload: yes
+  listen: systemd daemon-reload

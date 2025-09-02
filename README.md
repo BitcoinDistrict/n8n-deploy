@@ -21,6 +21,7 @@
   - A deploy user with **passwordless sudo** access configured (see Server Setup below).
 
 - The repo will:
+  - **Optimize system performance** for tiny Ubuntu VMs (ZRAM/swap, kernel tuning, systemd optimization),
   - Install Docker Engine + Compose plugin,
   - Place **Caddyfile**, **docker-compose.yml**, and **.env** (from SOPS),
   - Start `caddy`, `n8n`, `watchtower`.
@@ -39,11 +40,17 @@ Create these files exactly:
 ├── app/
 │   ├── Caddyfile
 │   └── workflows/                   # (optional) store exported n8n JSON here
-├── ansible/roles/n8n/
-│   ├── files/
-│   │   └── docker-compose.yml
-│   └── templates/
-│       └── .env.sops                # SOPS-encrypted .env (commit encrypted only)
+├── ansible/roles/
+│   ├── n8n/
+│   │   ├── files/
+│   │   │   └── docker-compose.yml
+│   │   └── templates/
+│   │       └── .env.sops            # SOPS-encrypted .env (commit encrypted only)
+│   └── performance_optimization/    # System performance optimization for tiny VMs
+│       ├── tasks/
+│       ├── handlers/
+│       ├── templates/
+│       └── defaults/
 ├── .github/workflows/
 │   └── deploy.yml
 ├── .sops.yaml
@@ -491,6 +498,67 @@ To update the deployment:
 2. If updating secrets, re-encrypt with SOPS
 3. Commit and push changes
 4. GitHub Actions will automatically redeploy
+
+---
+
+## Performance Optimization
+
+The playbook automatically includes performance optimizations for tiny Ubuntu VMs. This feature can be controlled with the `enable_performance_optimization` variable (default: `true`).
+
+### What Gets Optimized
+
+1. **Swap Management**
+   - ZRAM for VMs < 2GB RAM (compressed, in-memory)
+   - Swapfile for larger VMs (persistent, disk-based)
+   - Conservative swappiness settings (reduces swap usage)
+
+2. **Kernel/Network Tuning**
+   - BBR TCP congestion control (if available)
+   - Optimized TCP buffer sizes and connection limits
+   - Fair queueing (fq) traffic scheduler
+
+3. **Systemd/Journal Optimization**
+   - Limited journal size (100MB max) to prevent disk issues
+   - systemd-oomd for memory pressure handling
+   - Faster boot/shutdown timeouts
+
+4. **Filesystem/I/O**
+   - Increased file descriptor limits (65536)
+   - Automatic I/O scheduler optimization
+   - Optional noatime mounts for read-heavy servers
+
+### Configuration
+
+To disable performance optimization, add to your playbook variables:
+
+```yaml
+# In ansible/playbook.yml
+vars:
+  enable_performance_optimization: false
+```
+
+To run only performance optimization:
+
+```bash
+ansible-playbook -i inventory.ini playbook.yml --tags "performance"
+```
+
+### Verification
+
+After deployment, verify optimizations:
+
+```bash
+# Test performance optimizations only
+ansible-playbook -i inventory.ini test-performance.yml
+
+# Or check manually on the server
+swapon --show                              # Check swap configuration
+sysctl net.ipv4.tcp_congestion_control     # Check TCP optimization
+ulimit -n                                  # Check file descriptor limits
+journalctl --disk-usage                    # Check journal size
+```
+
+The optimization is **Ubuntu-specific** and includes safety checks to prevent running on incompatible systems.
 
 ---
 
