@@ -138,6 +138,15 @@
         project_src: /opt/n8n
         state: present
 
+  post_tasks:
+    - name: Ensure vm.overcommit_memory is set to 0 (safer on 1GB host)
+      sysctl:
+        name: vm.overcommit_memory
+        value: "0"
+        state: present
+        sysctl_file: /etc/sysctl.d/60-memory-optimization-override.conf
+        reload: yes
+
   handlers:
     - name: Reload UFW
       command: ufw reload

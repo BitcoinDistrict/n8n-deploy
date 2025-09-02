@@ -1,0 +1,7 @@
+---
+# Overrides for n8n hosts on tiny VMs
+performance_optimization_enable_oomd: false
+performance_optimization_zram_threshold_mb: 0
+performance_optimization_swap_size_ratio: 2.0
+performance_optimization_swappiness: 20
+performance_optimization_vfs_cache_pressure: 150
