@@ -30,6 +30,13 @@
   when: use_zram
   tags: ['swap']
 
+- name: Ensure ZRAM kernel module is loaded
+  modprobe:
+    name: zram
+    state: present
+  when: use_zram and (ansible_distribution_major_version | int) >= 22
+  tags: ['swap']
+
 - name: Configure systemd-zram-generator (Ubuntu >= 22.04)
   copy:
     dest: /etc/systemd/zram-generator.conf
@@ -39,8 +46,38 @@
       zram-size = {{ swap_size_mb }}M
       compression-algorithm = {{ performance_optimization_zram_algo }}
       swap-priority = 100
+      # Additional options for better stability
+      max-zram-size = {{ swap_size_mb }}M
+      # Ensure we don't exceed available memory
+      memory-limit = {{ (ansible_memtotal_mb * 0.8) | int }}M
   when: use_zram and (ansible_distribution_major_version | int) >= 22
   notify: systemd daemon-reload
+  tags: ['swap']
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+  when: use_zram and (ansible_distribution_major_version | int) >= 22
+  tags: ['swap']
+
+- name: Wait for ZRAM device to be available
+  wait_for:
+    path: /dev/zram0
+    timeout: 30
+  when: use_zram and (ansible_distribution_major_version | int) >= 22
+  tags: ['swap']
+
+- name: Check ZRAM device status
+  shell: cat /sys/block/zram0/comp_algorithm
+  register: zram_algo_check
+  when: use_zram and (ansible_distribution_major_version | int) >= 22
+  failed_when: false
+  tags: ['swap']
+
+- name: Display ZRAM device information
+  debug:
+    msg: "ZRAM device algorithms: {{ zram_algo_check.stdout }}"
+  when: use_zram and (ansible_distribution_major_version | int) >= 22 and zram_algo_check.stdout is defined
   tags: ['swap']
 
 - name: Enable swap on zram (Ubuntu >= 22.04)
@@ -49,6 +86,49 @@
     enabled: yes
     state: started
   when: use_zram and (ansible_distribution_major_version | int) >= 22
+  tags: ['swap']
+  register: zram_service_result
+  failed_when: false
+
+- name: Check ZRAM service status
+  systemd:
+    name: systemd-zram-setup@zram0.service
+  when: use_zram and (ansible_distribution_major_version | int) >= 22
+  tags: ['swap']
+  register: zram_status
+
+- name: Display ZRAM status
+  debug:
+    msg: "ZRAM service status: {{ zram_status.status.ActiveState }}"
+  when: use_zram and (ansible_distribution_major_version | int) >= 22
+  tags: ['swap']
+
+- name: Fallback to swapfile if ZRAM fails
+  debug:
+    msg: "ZRAM failed to start, falling back to swapfile configuration"
+  when: use_zram and (ansible_distribution_major_version | int) >= 22 and zram_status.status.ActiveState != "active"
+  tags: ['swap']
+
+- name: Create fallback swapfile if ZRAM fails
+  command: fallocate -l {{ swap_size_mb }}M /swapfile
+  when: use_zram and (ansible_distribution_major_version | int) >= 22 and zram_status.status.ActiveState != "active" and not ansible_check_mode
+  tags: ['swap']
+
+- name: Set fallback swapfile permissions
+  file:
+    path: /swapfile
+    mode: '0600'
+  when: use_zram and (ansible_distribution_major_version | int) >= 22 and zram_status.status.ActiveState != "active"
+  tags: ['swap']
+
+- name: Format fallback swapfile
+  command: mkswap /swapfile
+  when: use_zram and (ansible_distribution_major_version | int) >= 22 and zram_status.status.ActiveState != "active" and not ansible_check_mode
+  tags: ['swap']
+
+- name: Enable fallback swapfile
+  command: swapon /swapfile
+  when: use_zram and (ansible_distribution_major_version | int) >= 22 and zram_status.status.ActiveState != "active" and not ansible_check_mode
   tags: ['swap']
 
 - name: Configure zram-tools (Ubuntu 20.04)
