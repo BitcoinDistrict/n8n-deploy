@@ -21,6 +21,9 @@ services:
       - N8N_SECURE_COOKIE=true
       - NODE_ENV=production
       - GENERIC_TIMEZONE=America/New_York
+      - NODE_FUNCTION_ALLOW_BUILTIN=crypto
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_VERSION_NOTIFICATIONS_ENABLED=false
     volumes:
       - n8n_data:/home/node/.n8n
       - ./local_files:/files
